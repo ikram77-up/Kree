@@ -7,14 +7,23 @@ import jwt from "jsonwebtoken";
 
 export const registerUser = async (req, res) => {
     try {
+    
+
         if (!req.body)
             return res.status(400).json({ message: "Invalid or missing JSON body" });
+       
+
         const { name, email, password, role } = req.body;
 
+
         const exist = await User.findOne({ email });
+       
+
         if (exist) return res.status(400).json({ message: "Eemail already used" });
 
         const hashedPassword = await bcrypt.hash(password, 10);
+        console.log(hashedPassword);
+
         const newUser = new User({ name, email, password: hashedPassword, role });
         await newUser.save();
 

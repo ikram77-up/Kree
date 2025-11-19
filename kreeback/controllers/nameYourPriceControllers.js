@@ -3,27 +3,57 @@ import Car from "../models/car.js";
 import Client from "../models/client.js";
 import Agency from "../models/agency.js";
 import Reservation from "../models/reservation.js";
+import { io } from "../kree.js";
 
 
 //clent creer leur proposition
 export const createPrice = async (req, res) => {
+    console.log("Fichiers reçus :", req.files);
     console.log("req.body =", req.body);
     try {
         if (!req.isClient) {
             return res.status(403).json({ message: "You are not a client" });
         }
-        const { carId = null, offeredPrice, startDate, endDate, pickupLocation, returnLocation } = req.body;
+
+        let cinPath = null;
+        let picturePath = null;
+
+        if (req.files && req.files['cin']) {
+            cinPath = req.files['cin'][0].path;
+        }
+        if (req.files && req.files['picture']) {
+            picturePath = req.files['picture'][0].path;
+        }
+        const { carId = null, modelofCar, color, gearbox, fuelType, seats,
+            priceMin, priceMax, features, startDate, endDate, pickupLocation,
+            returnLocation } = req.body;
         console.log(req.body);
         const proposition = await NameYourPrice.create({
             carId,
             userId: req.user._id,
-            offeredPrice,
+            cinUrl: cinPath,
+            pictureUrl: picturePath,
+            modelofCar,
+            color,
+            gearbox,
+            fuelType,
+            seats,
+            priceMin: Number(priceMin),
+            priceMax: Number(priceMax),
+            features,
             startDate,
             endDate,
             pickupLocation,
             returnLocation
         });
+        //  Notifier toutes les agences 
+        // On peuple les infos du client pour les agences
+        await proposition.populate('userId', 'name');
 
+        // On envoie à la "room" de toutes les agences
+        io.to('agencies_room').emit('new_price_request', proposition);
+
+        console.log("New price request sent to agencies:", proposition._id);
         res.status(201).json({
             message: "Price created successfully", proposition,
             client: req.profile
@@ -57,7 +87,7 @@ export const getAllpropositionPrices = async (req, res) => {
             pricesWithProfiles.push(priceObj);
         }
         console.log(pricesWithProfiles);
-        res.status(200).json(pricesWithProfiles);
+        res.status(200).json("your request send success", pricesWithProfiles);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -119,6 +149,9 @@ export const acceptpriceByAgence = async (req, res) => {
         await proposition.save();
         const reservation = await Reservation.create({
             userId: proposition.userId._id,
+            nameYourPriceId: proposition._id,
+            offreId: proposition._id,
+            agenceId: req.user._id,
             carId: proposition.carId._id,
             startDate: proposition.startDate,
             endDate: proposition.endDate,

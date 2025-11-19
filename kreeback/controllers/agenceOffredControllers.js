@@ -1,8 +1,10 @@
 import AgenceOffred from "../models/agenceOffred.js";
 import Client from "../models/client.js";
+import Car from "../models/car.js";
 import Agency from "../models/agency.js";
 import Reservation from "../models/reservation.js";
-import { sendNotification } from  "../controllers/noticationController.js";
+import NameYourPrice from "../models/nameyourprice.js";
+import { sendNotification } from "../controllers/noticationController.js";
 
 
 //agence creer une offre 
@@ -11,20 +13,36 @@ export const createOffre = async (req, res) => {
         if (!req.isAgency) {
             return res.status(403).json({ message: "you are not agency" });
         }
-        const { carId, nameyourpriceId, message } = req.body;
-        if (!carId || !nameyourpriceId || !message) {
+        const { carId, nameyourpriceId, offrePrice, message } = req.body;
+        if (!carId || !nameyourpriceId || !offrePrice || !message) {
             return res.status(400).json({ message: "all fields are required" });
         }
         const car = await Car.findOne({ _id: carId, userId: req.user._id });
         if (!car) {
             return res.status(403).json({ message: "This car does not belong to your agency" });
         }
+
+        const demandeClient = await NameYourPrice.findById(nameyourpriceId);
+
+        if (!demandeClient) {
+            return res.status(404).json({ message: "Cette demande n'existe plus." });
+        }
+
         const offre = await AgenceOffred.create({
             agenceId: req.user._id,
             carId,
             nameyourpriceId,
+            offrePrice,
             message,
         });
+
+        //envoi de notification au client qui a fait la demande de offre 
+        await sendNotification(
+            demandeClient.userId,
+            "Nouvelle offre reçue !",
+            `L'agence ${req.user.name} vous propose ${offrePrice} MAD pour votre trajet.`,
+            "offre"
+        );
         res.status(201).json({ message: "offre created successfully", offre });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -65,29 +83,73 @@ export const getoffresforclient = async (req, res) => {
 };
 //agence repond au demande de client
 export const answeroffrebyclient = async (req, res) => {
+    let notificationMessage = "";
     try {
         const { offreId, status } = req.body;
 
         const offre = await AgenceOffred.findById(offreId)
             .populate("nameyourpriceId")
-            .populate("carId");
+            .populate("carId")
+            .populate("agenceId");
 
         if (!offre) return res.status(404).json({ message: "offre not found" });
+
+        if (offre.nameyourpriceId.userId._id.toString() !== req.user._id.toString())
+            return res.status(403).json({ message: "you are not the owner of this offre" });
 
         offre.status = status;
         await offre.save();
 
-        // Si acceptée envoye une notification a l'agence
+        // Si acceptée  creer une reservation et envoye une notification a l'agence
         if (status === "accepted") {
+            notificationMessage = `Félicitations ! Votre offre pour ${offre.carId.brand} a été ACCEPTÉE. Une réservation a été créée.`;
+
             await sendNotification(
-                offre.agenceId,
-                "Offre acceptée ",
-                "Le client a accepté votre offre.",
+                offre.agenceId._id,
+                "Réservation Confirmée",
+                notificationMessage,
+                "reservation"
+            );
+
+        } else { // status === 'rejected'
+            notificationMessage = `Votre offre pour ${offre.carId.brand} a été REFUSÉE par le client.`;
+
+            await sendNotification(
+                offre.agenceId._id,
+                "Offre Rejetée",
+                notificationMessage,
                 "offre"
             );
         }
+        const reservation = await Reservation.create({
+            userId: req.user._id,
+            carId: offre.carId._id,
+            offreId: offre._id,
+            agenceId: offre.agenceId._id,
+            nameYourPriceId: offre.nameyourpriceId._id,
+            startDate: offre.nameyourpriceId.startDate,
+            endDate: offre.nameyourpriceId.endDate,
+            pickupLocation: offre.nameyourpriceId.pickupLocation,
+            returnLocation: offre.nameyourpriceId.returnLocation,
+            totalPrice: offre.offrePrice,
+            status: "accepted",
+            paymentStatus: "pending",
+        });
+        await NameYourPrice.findByIdAndUpdate(offre.nameyourpriceId._id, {
+            status: "accepted"
+        });
+        await sendNotification(
+            offre.agenceId,
+            "Offre acceptée ",
+            `Le client ${req.user.name} a accepté votre offre de ${offre.offrePrice} DHS 
+                pour la ${offre.carId.modelCar}.`,
+            "offre"
+        );
+        return res.status(200).json({ message: "offre accepted", offre, reservation });
+
 
         res.status(200).json({ message: "Offre mise à jour", offre });
+
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

@@ -1,13 +1,39 @@
 import Car from "../models/car.js";
 import Agency from "../models/agency.js";
 
+
+const toBoolean = (value) => String(value) === 'true';
 export const createCar = async (req, res) => {
     console.log("Body reçu :", req.body);
+    console.log("Files reçu :", req.files);
+    const {
+        modelCar, brand, km, color, fuelType, gearBox, seats,
+        gps, bluetooth, climatisation 
+    } = req.body;
     try {
         if (!req.isAgency) {
             return res.status(403).json({ message: "You are not a loueur" });
         }
-        const car = await Car.create({ ...req.body, userId: req.user._id });
+        let imagePath = req.file ? req.file.path : null;
+        if (!imagePath) {
+            return res.status(400).json({ message: "L'image de la voiture est obligatoire." });
+        }
+        const car = await Car.create({
+            userId: req.user._id,
+            modelCar,
+            brand,
+            km: Number(km),
+            color,
+            fuelType,
+            gearBox,
+            seats: Number(seats),
+            image: imagePath,
+            features: {
+                gps: toBoolean(gps), 
+                bluetooth: toBoolean(bluetooth),
+                climatisation: toBoolean(climatisation),
+            },
+        });
         await car.populate("userId", "name role");
         res.status(201).json({ message: "Car created successfully", car });
     } catch (error) {
@@ -50,6 +76,11 @@ export const getCarbyId = async (req, res) => {
 }
 
 export const updateCar = async (req, res) => {
+   
+        const {
+            modelCar, brand, km, color, fuelType, gearBox, seats,
+            gps, bluetooth, climatisation
+    } = req.body;
     try {
         if (!req.isAgency) {
             return res.status(403).json({ message: "You are not a loueur" });
@@ -60,7 +91,19 @@ export const updateCar = async (req, res) => {
             return res.status(403).json({ message: "You are not a loueur" });
         }
     
-        Object.assign(car, req.body);
+        const newImagePath = req.file ? req.file.path : car.image
+        car.modelCar = modelCar || car.modelCar;
+        car.brand = brand || car.brand;
+        car.color = color || car.color;
+        car.fuelType = fuelType || car.fuelType;
+        car.gearBox = gearBox || car.gearBox;
+        car.image = newImagePath;
+        car.km = km ? Number(km) : car.km;
+        car.seats = seats ? Number(seats) : car.seats;
+        car.features.gps = toBoolean(gps);
+        car.features.bluetooth = toBoolean(bluetooth);
+        car.features.climatisation = toBoolean(climatisation);
+        
         await car.save();
         await car.populate("userId", "name role");
         const carObj = car.toObject();

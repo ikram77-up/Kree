@@ -11,6 +11,10 @@ const agenceOffredSchema = new mongoose.Schema({
         ref: "Car",
         required: true,
     },
+    offrePrice: {
+        type: Number,
+        required: true,
+    },
     nameyourpriceId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "NameYourPrice",
